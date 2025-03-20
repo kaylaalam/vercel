@@ -87,7 +87,7 @@ store_codes = {
 }
 
 @app.route('/', methods=['GET', 'POST'])
-def index():
+def home():
     if request.method == 'POST':
         start_date_str = request.form.get('start_date')
         end_date_str = request.form.get('end_date')
@@ -158,9 +158,11 @@ def index():
 
     return render_template('index.html')
 
-# For Vercel serverless deployment
-def handler(request):
-    with app.request_context(request):
-        return app.handle_request()
+# Required for Vercel serverless deployment
+def app_handler(request):
+    """Handle requests in a serverless environment."""
+    return app
 
-app.debug = True 
+# Make the application callable
+app.debug = True
+application = app 
