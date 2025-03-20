@@ -1,14 +1,15 @@
 import io
 import gzip
+import os
 from flask import Flask, request, render_template, send_file, flash, redirect, jsonify
 import pandas as pd
 from datetime import datetime
 
 app = Flask(__name__)
-app.secret_key = 'your_secret_key'  # Replace with a secure key in production
+app.secret_key = os.environ.get('SECRET_KEY', 'your_secret_key')  # Use environment variable in production
 
-# Maximum file size (4MB to be safe)
-MAX_FILE_SIZE = 4 * 1024 * 1024  # 4MB in bytes
+# Maximum file size (50MB for Heroku)
+MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB in bytes
 
 # Mapping dictionary for Reach Location to Store Codes
 store_codes = {
@@ -162,27 +163,6 @@ def home():
                 worksheet.set_column(f'{date_col_letter}:{date_col_letter}', 12, date_format)
 
             output.seek(0)
-            
-            # Check if the output size is too large
-            output_size = output.getbuffer().nbytes
-            if output_size > MAX_FILE_SIZE:
-                flash(f'Processed file size ({output_size/1024/1024:.1f}MB) exceeds the maximum allowed size of {MAX_FILE_SIZE/1024/1024:.1f}MB. Please process fewer records.')
-                return redirect(request.url)
-
-            # Compress the output if it's large
-            if output_size > MAX_FILE_SIZE / 2:  # If file is larger than 2MB
-                compressed_output = io.BytesIO()
-                with gzip.GzipFile(fileobj=compressed_output, mode='wb') as gz:
-                    gz.write(output.getvalue())
-                compressed_output.seek(0)
-                return send_file(
-                    compressed_output,
-                    download_name="processed_file.xlsx",
-                    as_attachment=True,
-                    mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                    headers={"Content-Encoding": "gzip"}
-                )
-            
             return send_file(
                 output,
                 download_name="processed_file.xlsx",
@@ -195,6 +175,10 @@ def home():
             return redirect(request.url)
 
     return render_template('index.html')
+
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
 
 # Required for Vercel serverless deployment
 def app_handler(request):
