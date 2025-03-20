@@ -5,8 +5,8 @@ from datetime import datetime
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'  # Replace with a secure key in production
-# Mapping dictionary for Reach Location to Store Codes
 
+# Mapping dictionary for Reach Location to Store Codes
 store_codes = {
     'Altamonte': '002',
     'Apopka Hunt Club': '007',
@@ -89,53 +89,61 @@ store_codes = {
 @app.route('/', methods=['GET', 'POST'])
 def index():
     if request.method == 'POST':
-        # (Your file processing and logic here.)
-        # Example snippet:
         start_date_str = request.form.get('start_date')
         end_date_str = request.form.get('end_date')
         uploaded_file = request.files.get('file')
+
         if not uploaded_file:
             flash('No file uploaded.')
             return redirect(request.url)
+
         try:
             start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
             end_date = datetime.strptime(end_date_str, '%Y-%m-%d')
         except ValueError:
             flash('Invalid date format. Please use YYYY-MM-DD.')
             return redirect(request.url)
+
         try:
             if uploaded_file.filename.lower().endswith('.csv'):
                 df = pd.read_csv(uploaded_file)
             else:
                 df = pd.read_excel(uploaded_file)
+
             df = df[['Email Address', 'Email Opt In', 'Account Created Date', 'Reach Location']]
             df["Account Created Date"] = pd.to_datetime(df["Account Created Date"])
             df = df[(df["Account Created Date"] >= start_date) & (df["Account Created Date"] <= end_date)]
             df = df[df["Email Opt In"].astype(str).str.upper() == "TRUE"]
+
             df["Reach Location"] = df["Reach Location"].apply(
                 lambda x: "Ghost Location" if pd.isna(x) or str(x).strip() in ["", "-"] else str(x).strip()
             )
+
             df["Store Codes"] = df["Reach Location"].apply(
                 lambda x: "057" if x == "Ghost Location" else store_codes.get(x, "")
             )
+
             df = df.drop(columns=["Email Opt In"])
             output = io.BytesIO()
+
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                 df.to_excel(writer, index=False, sheet_name='Sheet1')
-                workbook  = writer.book
+                workbook = writer.book
                 worksheet = writer.sheets['Sheet1']
                 date_format = workbook.add_format({'num_format': 'm/d/yy'})
                 date_col_idx = df.columns.get_loc("Account Created Date")
-                # Convert index (0-based) to Excel column letter (A, B, C, etc.)
+
                 def colnum_to_excel_col(n):
                     letters = ""
-                    n += 1  # convert 0-indexed to 1-indexed
+                    n += 1
                     while n:
                         n, remainder = divmod(n-1, 26)
                         letters = chr(65 + remainder) + letters
                     return letters
+
                 date_col_letter = colnum_to_excel_col(date_col_idx)
                 worksheet.set_column(f'{date_col_letter}:{date_col_letter}', 12, date_format)
+
             output.seek(0)
             return send_file(
                 output,
@@ -143,10 +151,13 @@ def index():
                 as_attachment=True,
                 mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
             )
+
         except Exception as e:
             flash(f"Error processing file: {str(e)}")
             return redirect(request.url)
+
     return render_template('index.html')
 
+# Ensure that Vercel can run the app
 if __name__ == '__main__':
     app.run(debug=True)
