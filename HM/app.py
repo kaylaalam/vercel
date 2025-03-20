@@ -158,6 +158,8 @@ def index():
 
     return render_template('index.html')
 
-# Ensure that Vercel can run the app
-if __name__ == '__main__':
-    app.run(debug=True)
+
+# Vercel specific handler
+def handler(request):
+    return app(request, environ=request.environ, start_response=request.start_response)
+
