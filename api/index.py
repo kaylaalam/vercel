@@ -1,10 +1,14 @@
 import io
-from flask import Flask, request, render_template, send_file, flash, redirect
+import gzip
+from flask import Flask, request, render_template, send_file, flash, redirect, jsonify
 import pandas as pd
 from datetime import datetime
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'  # Replace with a secure key in production
+
+# Maximum file size (4MB to be safe)
+MAX_FILE_SIZE = 4 * 1024 * 1024  # 4MB in bytes
 
 # Mapping dictionary for Reach Location to Store Codes
 store_codes = {
@@ -97,6 +101,15 @@ def home():
             flash('No file uploaded.')
             return redirect(request.url)
 
+        # Check file size
+        uploaded_file.seek(0, 2)  # Seek to end of file
+        file_size = uploaded_file.tell()  # Get current position (file size)
+        uploaded_file.seek(0)  # Reset to beginning of file
+
+        if file_size > MAX_FILE_SIZE:
+            flash(f'File size too large. Maximum allowed size is {MAX_FILE_SIZE/1024/1024:.1f}MB')
+            return redirect(request.url)
+
         try:
             start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
             end_date = datetime.strptime(end_date_str, '%Y-%m-%d')
@@ -105,11 +118,13 @@ def home():
             return redirect(request.url)
 
         try:
+            # Read the file
             if uploaded_file.filename.lower().endswith('.csv'):
                 df = pd.read_csv(uploaded_file)
             else:
                 df = pd.read_excel(uploaded_file)
 
+            # Process the data
             df = df[['Email Address', 'Email Opt In', 'Account Created Date', 'Reach Location']]
             df["Account Created Date"] = pd.to_datetime(df["Account Created Date"])
             df = df[(df["Account Created Date"] >= start_date) & (df["Account Created Date"] <= end_date)]
@@ -124,9 +139,11 @@ def home():
             )
 
             df = df.drop(columns=["Email Opt In"])
-            output = io.BytesIO()
 
-            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            # Create Excel file in memory
+            output = io.BytesIO()
+            
+            with pd.ExcelWriter(output, engine='xlsxwriter', mode='wb', options={'constant_memory': True}) as writer:
                 df.to_excel(writer, index=False, sheet_name='Sheet1')
                 workbook = writer.book
                 worksheet = writer.sheets['Sheet1']
@@ -145,6 +162,27 @@ def home():
                 worksheet.set_column(f'{date_col_letter}:{date_col_letter}', 12, date_format)
 
             output.seek(0)
+            
+            # Check if the output size is too large
+            output_size = output.getbuffer().nbytes
+            if output_size > MAX_FILE_SIZE:
+                flash(f'Processed file size ({output_size/1024/1024:.1f}MB) exceeds the maximum allowed size of {MAX_FILE_SIZE/1024/1024:.1f}MB. Please process fewer records.')
+                return redirect(request.url)
+
+            # Compress the output if it's large
+            if output_size > MAX_FILE_SIZE / 2:  # If file is larger than 2MB
+                compressed_output = io.BytesIO()
+                with gzip.GzipFile(fileobj=compressed_output, mode='wb') as gz:
+                    gz.write(output.getvalue())
+                compressed_output.seek(0)
+                return send_file(
+                    compressed_output,
+                    download_name="processed_file.xlsx",
+                    as_attachment=True,
+                    mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    headers={"Content-Encoding": "gzip"}
+                )
+            
             return send_file(
                 output,
                 download_name="processed_file.xlsx",
